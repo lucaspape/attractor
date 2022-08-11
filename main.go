@@ -1,6 +1,7 @@
 package main
 
 import (
+	"fmt"
 	"github.com/g3n/engine/app"
 	"github.com/g3n/engine/camera"
 	"github.com/g3n/engine/core"
@@ -13,10 +14,16 @@ import (
 	"github.com/g3n/engine/math32"
 	"github.com/g3n/engine/renderer"
 	"github.com/g3n/engine/window"
+	"image"
+	"image/color"
+	"image/png"
+	"os"
 	"strconv"
 	"sync"
 	"time"
 )
+
+var frameDir = "frames"
 
 var n int32 = 100000
 
@@ -80,6 +87,9 @@ func main() {
 	lastFrameTime := time.Now().UnixNano()
 	frames := 0
 
+	var frame int64
+	frame = 0
+
 	fpsText := gui.NewLabel("0 fps")
 	fpsText.SetPosition(10, 10)
 	fpsText.SetSize(40, 40)
@@ -124,8 +134,18 @@ func main() {
 
 		_ = renderer.Render(scene, cam)
 
+		saveFramebuffer(a, frame)
+
 		frames++
+		frame++
 	})
+}
+
+func saveFramebuffer(a *app.Application, frame int64) {
+	width, height := a.GetSize()
+	data := a.Gls().ReadPixels(0, 0, width, height, gls.RGBA, gls.UNSIGNED_BYTE)
+
+	saveFrame(data, frame, width, height)
 }
 
 func resetAnimation(vectors []math32.Vector3, spheres []*graphic.Mesh) {
@@ -214,4 +234,94 @@ func chunkSlice[Type comparable](slice []Type, chunkSize int) [][]Type {
 	}
 
 	return chunks
+}
+
+func saveFrame(data []byte, number int64, width int, height int) {
+	upLeft := image.Point{
+		X: 0,
+		Y: 0,
+	}
+
+	lowRight := image.Point{
+		X: width,
+		Y: height,
+	}
+
+	img := image.NewRGBA(image.Rectangle{
+		Min: upLeft,
+		Max: lowRight,
+	})
+
+	var (
+		r uint8
+		g uint8
+		b uint8
+		a uint8
+	)
+
+	r = 0
+	g = 0
+	b = 0
+	a = 0
+
+	var rgbas []color.RGBA
+
+	k := 1
+
+	for _, bit := range data {
+		switch k {
+		case 1:
+			r = bit
+			break
+		case 2:
+			g = bit
+			break
+		case 3:
+			b = bit
+			break
+		case 4:
+			a = bit
+			k = 0
+
+			rgbas = append(rgbas, color.RGBA{
+				R: r,
+				G: g,
+				B: b,
+				A: a,
+			})
+
+			break
+		}
+
+		k++
+	}
+
+	x := width
+	y := 0
+
+	for i := len(rgbas) - 1; i >= 0; i-- {
+		img.Set(x, y, rgbas[i])
+
+		if x == 0 {
+			y++
+			x = width
+		}
+
+		x--
+	}
+
+	out, err := os.Create(frameDir + "/frame_" + strconv.FormatInt(number, 10) + ".png")
+
+	if err != nil {
+		fmt.Println(err)
+		return
+	}
+
+	defer out.Close()
+
+	err = png.Encode(out, img)
+
+	if err != nil {
+		fmt.Println(err)
+	}
 }
